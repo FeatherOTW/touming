@@ -88,6 +88,8 @@ int currentCardIndex = 0; // 当前显示的卡片索引
 DWORD64 lastCardChangeTime = 0; // 上次切换卡片的时间
 bool isWordCardsMode = false; // 是否处于单词卡模式
 bool needReloadWordCards = false; // 是否需要重新加载单词卡
+std::vector<int> shuffledIndices; // 洗牌后的索引列表
+int shuffledIndex = 0; // 当前在洗牌列表中的位置
 
 
 // Settings
@@ -361,10 +363,76 @@ void LoadSettingsFromIni() {
     // 读取透明模式设置
     g_settings.isTransparentBackground = GetPrivateProfileIntW(L"Settings", L"IsTransparentBackground", g_settings.isTransparentBackground, iniPath) != 0;
     
-    // Load standby display settings
+    // Load standby display settings - 使用直接文件读取方法以支持多行文本
+    // 尝试使用GetPrivateProfileStringW读取（向后兼容）
     wchar_t standbyText[1024];
     GetPrivateProfileStringW(L"Settings", L"StandbyDisplayText", g_settings.standbyDisplayText.c_str(), standbyText, 1024, iniPath);
-    g_settings.standbyDisplayText = standbyText;
+    
+    // 检查是否包含转义的换行符，如果没有，尝试直接从文件读取
+    std::wstring tempText = standbyText;
+    if (tempText.find(L"\\n") != std::wstring::npos) {
+        // 包含转义的换行符，进行替换
+        size_t pos = 0;
+        while ((pos = tempText.find(L"\\n", pos)) != std::wstring::npos) {
+            tempText.replace(pos, 2, L"\n");
+            pos += 1; // 跳过替换的字符
+        }
+        g_settings.standbyDisplayText = tempText;
+    } else {
+        // 尝试直接从文件读取整个INI内容，手动解析
+        HANDLE hFile = CreateFileW(iniPath, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (hFile != INVALID_HANDLE_VALUE) {
+            DWORD fileSize = GetFileSize(hFile, nullptr);
+            std::vector<char> fileData(fileSize + 1);
+            DWORD bytesRead;
+            if (ReadFile(hFile, fileData.data(), fileSize, &bytesRead, nullptr)) {
+                fileData[bytesRead] = '\0';
+                
+                // 转换为宽字符串
+                int wideSize = MultiByteToWideChar(CP_ACP, 0, fileData.data(), -1, nullptr, 0);
+                std::vector<wchar_t> wideBuffer(wideSize);
+                MultiByteToWideChar(CP_ACP, 0, fileData.data(), -1, wideBuffer.data(), wideSize);
+                
+                std::wstring fileContent(wideBuffer.data());
+                
+                // 手动解析StandbyDisplayText部分
+                std::wstring sectionStart = L"[Settings]";
+                std::wstring keyStart = L"StandbyDisplayText=";
+                
+                size_t sectionPos = fileContent.find(sectionStart);
+                if (sectionPos != std::wstring::npos) {
+                    size_t keyPos = fileContent.find(keyStart, sectionPos);
+                    if (keyPos != std::wstring::npos) {
+                        keyPos += keyStart.length();
+                        
+                        // 查找值的结束位置（下一个节或文件结束）
+                        size_t endPos = fileContent.find(L"\n", keyPos);
+                        if (endPos == std::wstring::npos) {
+                            endPos = fileContent.length();
+                        }
+                        
+                        // 提取值并处理多行情况
+                        std::wstring value = fileContent.substr(keyPos, endPos - keyPos);
+                        
+                        // 检查并移除开头和结尾的引号（如果存在）
+                        if (value.length() >= 2 && value[0] == '"' && value[value.length() - 1] == '"') {
+                            value = value.substr(1, value.length() - 2);
+                        }
+                        
+                        // 替换转义的换行符
+                        size_t pos = 0;
+                        while ((pos = value.find(L"\\n", pos)) != std::wstring::npos) {
+                            value.replace(pos, 2, L"\n");
+                            pos += 1;
+                        }
+                        
+                        g_settings.standbyDisplayText = value;
+                    }
+                }
+            }
+            CloseHandle(hFile);
+        }
+    }
     
     int scrollType = GetPrivateProfileIntW(L"Settings", L"StandbyScrollType", (int)g_settings.standbyScrollType, iniPath);
     // Validate scroll type value
@@ -468,8 +536,69 @@ void SaveSettingsToIni() {
     swprintf_s(buffer, 32, L"%d", g_settings.isTransparentBackground ? 1 : 0);
     WritePrivateProfileStringW(L"Settings", L"IsTransparentBackground", buffer, iniPath);
     
-    // Save standby display settings
-    WritePrivateProfileStringW(L"Settings", L"StandbyDisplayText", g_settings.standbyDisplayText.c_str(), iniPath);
+    // Save standby display settings - 使用更可靠的方式保存多行文本
+    // 对换行符进行转义
+    std::wstring escapedText = g_settings.standbyDisplayText;
+    size_t pos = 0;
+    while ((pos = escapedText.find(L"\n", pos)) != std::wstring::npos) {
+        escapedText.replace(pos, 1, L"\\n");
+        pos += 2; // 跳过替换的字符
+    }
+    
+    // 使用WritePrivateProfileStringW写入（基本支持）
+    WritePrivateProfileStringW(L"Settings", L"StandbyDisplayText", escapedText.c_str(), iniPath);
+    
+    // 为了确保多行文本正确保存，我们使用直接文件操作进行修复
+    HANDLE hFile = CreateFileW(iniPath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile != INVALID_HANDLE_VALUE) {
+        DWORD fileSize = GetFileSize(hFile, nullptr);
+        std::vector<char> fileData(fileSize + 1);
+        DWORD bytesRead;
+        if (ReadFile(hFile, fileData.data(), fileSize, &bytesRead, nullptr)) {
+            fileData[bytesRead] = '\0';
+            
+            // 转换为宽字符串进行处理
+            int wideSize = MultiByteToWideChar(CP_ACP, 0, fileData.data(), -1, nullptr, 0);
+            std::vector<wchar_t> wideBuffer(wideSize);
+            MultiByteToWideChar(CP_ACP, 0, fileData.data(), -1, wideBuffer.data(), wideSize);
+            
+            std::wstring fileContent(wideBuffer.data());
+            
+            // 查找并替换StandbyDisplayText行
+            std::wstring sectionStart = L"[Settings]";
+            std::wstring keyStart = L"StandbyDisplayText=";
+            
+            size_t sectionPos = fileContent.find(sectionStart);
+            if (sectionPos != std::wstring::npos) {
+                size_t keyPos = fileContent.find(keyStart, sectionPos);
+                if (keyPos != std::wstring::npos) {
+                    // 查找当前值的结束位置
+                    size_t endPos = fileContent.find(L"\n", keyPos);
+                    if (endPos == std::wstring::npos) {
+                        endPos = fileContent.length();
+                    }
+                    
+                    // 构建新的键值对行，用引号包裹值以支持特殊字符
+                    std::wstring newValue = keyStart + L"\"" + escapedText + L"\"";
+                    
+                    // 替换旧的键值对
+                    fileContent.replace(keyPos, endPos - keyPos, newValue);
+                    
+                    // 转换回多字节字符串并写回文件
+                    int multiSize = WideCharToMultiByte(CP_ACP, 0, fileContent.c_str(), -1, nullptr, 0, nullptr, nullptr);
+                    std::vector<char> multiBuffer(multiSize);
+                    WideCharToMultiByte(CP_ACP, 0, fileContent.c_str(), -1, multiBuffer.data(), multiSize, nullptr, nullptr);
+                    
+                    // 写回文件
+                    SetFilePointer(hFile, 0, nullptr, FILE_BEGIN);
+                    SetEndOfFile(hFile);
+                    DWORD bytesWritten;
+                    WriteFile(hFile, multiBuffer.data(), multiSize - 1, &bytesWritten, nullptr);
+                }
+            }
+        }
+        CloseHandle(hFile);
+    }
     swprintf_s(buffer, 32, L"%d", (int)g_settings.standbyScrollType);
     WritePrivateProfileStringW(L"Settings", L"StandbyScrollType", buffer, iniPath);
     
@@ -1550,12 +1679,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             // 更新滚动位置 - 使用InvalidateRect(NULL, FALSE)减少闪烁
             if (g_settings.standbyScrollType == StandbyScrollType::HorizontalScroll) {
                 scrollX -= g_settings.scrollSpeed;
-                // 重置滚动位置以实现循环效果 - 文本完全移出窗口时刷新下一次
-                if (scrollX < -textSize.cx) {  // 文本的X坐标减去文本长度小于主窗口的X坐标
-                    RECT rect;
-                    GetClientRect(hWnd, &rect);
-                    // 直接重置到窗口右侧，不显示两份文本
-                    scrollX = rect.right - rect.left;
+                // 重置滚动位置以实现循环效果 - 确保文本完全移出窗口后再重置
+                // 增加额外余量确保文本完全移出窗口，补偿GDI和GDI+尺寸计算差异
+                if (scrollX + textSize.cx * 1.5 < 0) {
+                  RECT rect;
+                  GetClientRect(hWnd, &rect);
+                  // 直接重置到窗口右侧，不显示两份文本
+                  scrollX = rect.right - rect.left;
                 }
                 // 只更新必要的区域，减少闪烁
                 // 计算需要更新的区域，包含文本和一些额外的边距
@@ -1572,8 +1702,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             else if (g_settings.standbyScrollType == StandbyScrollType::VerticalScroll) {
                 scrollY -= g_settings.scrollSpeed;
-                // 重置滚动位置以实现循环效果 - 文本最下端移出窗口时刷新下一次
-                if (scrollY < -textSize.cy) {  // 文本最下端移出窗口
+                // 重置滚动位置以实现循环效果 - 确保文本完全移出窗口后再重置
+                // 增加额外余量确保文本完全移出窗口，补偿GDI和GDI+尺寸计算差异
+                if (scrollY + textSize.cy < 0) {  // 增加到3倍文本高度以确保完全移出窗口
                     RECT rect;
                     GetClientRect(hWnd, &rect);
                     // 从窗口底部开始向上滚动
@@ -1612,8 +1743,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         // 使用GDI+实现分层绘制和透明度控制
         Graphics graphics(hdcMem);
-        graphics.SetSmoothingMode(SmoothingModeNone); // 禁用抗锯齿避免模糊边缘
-        graphics.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit); // 使用抗锯齿但避免ClearType产生的边框
+        // 针对透明模式使用不同的渲染策略
+        if (g_settings.isTransparentBackground) {
+            // 在半透明背景上使用高质量渲染
+            graphics.SetSmoothingMode(SmoothingModeHighQuality);
+            graphics.SetTextRenderingHint(TextRenderingHintAntiAlias); // 在半透明背景上使用常规抗锯齿而非ClearType
+        } else {
+            // 在完全透明窗口上使用更适合的渲染设置
+            graphics.SetSmoothingMode(SmoothingModeNone); // 禁用平滑以避免白色边缘
+            graphics.SetTextRenderingHint(TextRenderingHintSingleBitPerPixelGridFit); // 使用无抗锯齿渲染以消除白色边缘
+        }
         graphics.SetCompositingQuality(CompositingQualityHighQuality);
         graphics.SetInterpolationMode(InterpolationModeHighQualityBicubic);
         // 设置合成模式为SourceOver，确保透明度效果正确应用
@@ -1689,9 +1828,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             SelectObject(hdcMem, g_hFont);
         }
         
-        // 计算文本大小
+        // 计算文本大小 - 使用DrawTextW和DT_CALCRECT来正确计算多行文本的实际高度
         if (textLen > 0) {
+            // 首先获取单行高度用于其他需要的地方
             GetTextExtentPoint32W(hdcMem, textToDisplay.c_str(), textLen, &textSize);
+            
+            // 然后计算多行文本的实际高度
+            RECT textRect = {0, 0, clientRect.right - clientRect.left, 0};
+            DrawTextW(hdcMem, textToDisplay.c_str(), textLen, &textRect, 
+                DT_LEFT | DT_TOP | DT_WORDBREAK | DT_EDITCONTROL | DT_NOPREFIX | DT_CALCRECT);
+            // 更新textSize.cy为多行文本的实际高度
+            textSize.cy = textRect.bottom - textRect.top;
         }
         
         // 居中初始化逻辑
@@ -1774,11 +1921,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         BYTE textB = GetBValue(g_settings.textColor);
 
         // 创建带透明度的文本画笔
-        // 确保文本颜色与背景颜色有明显区分，避免边缘过渡问题
+        // 优化文本渲染，在透明背景下使用不同的抗锯齿策略
         SolidBrush textBrush(Color(g_settings.textOpacity, textR, textG, textB));
         
-        // 设置TextContrast以优化文本渲染
-        graphics.SetTextContrast(128); // 平衡文本清晰度和背景融合
+        // 根据不同的透明模式设置合适的文本对比度
+        if (g_settings.isTransparentBackground) {
+            // 在半透明背景上使用适中对比度以获得平衡效果
+            graphics.SetTextContrast(120);
+        } else {
+            // 在完全透明窗口上禁用特殊对比度处理，使用默认值以避免白色边缘
+            graphics.SetTextContrast(4);
+        }
 
         // 根据不同滚动类型在主DC上绘制文本
         if (g_settings.standbyScrollType == StandbyScrollType::Static) {
@@ -1787,7 +1940,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             stringFormat.SetAlignment(StringAlignmentCenter);
             stringFormat.SetLineAlignment(StringAlignmentCenter);
             stringFormat.SetTrimming(StringTrimmingEllipsisCharacter);
-            stringFormat.SetFormatFlags(StringFormatFlagsNoClip); // 避免文本裁剪导致的边框效果
+            
+            // 针对不同透明模式使用不同的格式标志
+            if (g_settings.isTransparentBackground) {
+                // 半透明背景使用标准设置
+                stringFormat.SetFormatFlags(StringFormatFlagsNoClip);
+            } else {
+                // 完全透明窗口使用特殊设置避免白色边缘
+                stringFormat.SetFormatFlags(StringFormatFlagsNoClip | StringFormatFlagsMeasureTrailingSpaces);
+            }
             
             graphics.DrawString(textToDisplay.c_str(), -1, &textFont, 
                 RectF(0, 0, (REAL)width, (REAL)height), 
@@ -2195,7 +2356,20 @@ bool LoadWordCardsFromCsv(const std::wstring& filePath) {
     }
     
 
-    currentCardIndex = 0;
+    // 初始化洗牌索引列表
+    shuffledIndices.clear();
+    for (int i = 0; i < static_cast<int>(wordCards.size()); i++) {
+        shuffledIndices.push_back(i);
+    }
+    
+    // 使用Fisher-Yates洗牌算法打乱顺序
+    for (int i = static_cast<int>(shuffledIndices.size()) - 1; i > 0; i--) {
+        int j = rand() % (i + 1);
+        std::swap(shuffledIndices[i], shuffledIndices[j]);
+    }
+    
+    shuffledIndex = 0; // 重置洗牌索引位置
+    
     lastCardChangeTime = GetTickCount64();
     return !wordCards.empty();
 }
@@ -2288,8 +2462,26 @@ void SwitchToNextWordCard() {
     
     // 直接更新索引，不再检查时间间隔（由定时器保证间隔）
     if (g_settings.isRandomOrder) {
-        // 随机顺序
-        currentCardIndex = rand() % wordCards.size();
+        // 随机顺序 - 使用洗牌算法确保在一轮中不重复
+        if (shuffledIndices.empty() || shuffledIndex >= static_cast<int>(shuffledIndices.size())) {
+            // 如果洗牌列表为空或已遍历完所有单词，重新洗牌
+            shuffledIndices.clear();
+            for (int i = 0; i < static_cast<int>(wordCards.size()); i++) {
+                shuffledIndices.push_back(i);
+            }
+            
+            // 使用Fisher-Yates洗牌算法打乱顺序
+            for (int i = static_cast<int>(shuffledIndices.size()) - 1; i > 0; i--) {
+                int j = rand() % (i + 1);
+                std::swap(shuffledIndices[i], shuffledIndices[j]);
+            }
+            
+            shuffledIndex = 0;
+        }
+        
+        // 使用洗牌后的索引
+        currentCardIndex = shuffledIndices[shuffledIndex];
+        shuffledIndex++;
     } else {
         // 顺序播放
         currentCardIndex = (currentCardIndex + 1) % wordCards.size();
