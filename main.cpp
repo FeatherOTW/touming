@@ -256,8 +256,9 @@ INT WINAPI WinMain(
     }
 
     // Create window without title bar using saved position or default
+    // 添加WS_EX_TOOLWINDOW样式使窗口不出现在Alt+Tab切换列表中
     HWND hwnd = CreateWindowExW(
-        WS_EX_LAYERED | (g_settings.isTopmost ? WS_EX_TOPMOST : 0),
+        WS_EX_LAYERED | WS_EX_TOOLWINDOW | (g_settings.isTopmost ? WS_EX_TOPMOST : 0),
         g_szClassName,
         L"",
         WS_POPUP | WS_VISIBLE,
@@ -297,7 +298,7 @@ INT WINAPI WinMain(
 // Create right-click menu
 void CreateAppPopupMenu() {
     g_hPopupMenu = CreatePopupMenu();
-    AppendMenuW(g_hPopupMenu, MF_STRING, IDM_SHOW, L"Show Window");
+    AppendMenuW(g_hPopupMenu, MF_STRING, IDM_SHOW, L"显示窗口");
     AppendMenuW(g_hPopupMenu, MF_STRING, IDM_SETTINGS, L"设置");
     AppendMenuW(g_hPopupMenu, MF_STRING, IDM_LOCK, L"锁定窗口");
     // 添加窗口置顶菜单项
@@ -2085,7 +2086,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             CreateSettingsWindow(hWnd);
             break;
         case IDM_ABOUT:
-            MessageBoxW(hWnd, L"Transparent Window App v1.0", L"About", MB_OK);
+            MessageBoxW(hWnd, L"v1.0", L"关于", MB_OK);
             break;
         case IDM_SHOW:
             ShowWindow(hWnd, SW_SHOW);
@@ -2094,7 +2095,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             g_settings.isLocked = !g_settings.isLocked;
             // Update menu item text
             if (g_hPopupMenu) {
-                ModifyMenuW(g_hPopupMenu, IDM_LOCK, MF_BYCOMMAND | MF_STRING, IDM_LOCK, g_settings.isLocked ? L"Unlock Window" : L"Lock Window");
+                ModifyMenuW(g_hPopupMenu, IDM_LOCK, MF_BYCOMMAND | MF_STRING, IDM_LOCK, g_settings.isLocked ? L"解锁窗口" : L"锁定窗口");
             }
 
             // Set or remove WS_EX_TRANSPARENT style for mouse click-through
@@ -2160,7 +2161,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 // 窗口不可见时，确保显示窗口菜单项存在
                 if (!GetMenuItemInfoW(g_hPopupMenu, IDM_SHOW, FALSE, &mii)) {
                     // 如果菜单项不存在，则添加它
-                    InsertMenuW(g_hPopupMenu, 0, MF_BYPOSITION | MF_STRING, IDM_SHOW, L"Show Window");
+                    InsertMenuW(g_hPopupMenu, 0, MF_BYPOSITION | MF_STRING, IDM_SHOW, L"显示窗口");
                 }
             }
         }
@@ -2192,7 +2193,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     // 窗口不可见时，确保显示窗口菜单项存在
                     if (!GetMenuItemInfoW(g_hPopupMenu, IDM_SHOW, FALSE, &mii)) {
                         // 如果菜单项不存在，则添加它
-                        InsertMenuW(g_hPopupMenu, 0, MF_BYPOSITION | MF_STRING, IDM_SHOW, L"Show Window");
+                        InsertMenuW(g_hPopupMenu, 0, MF_BYPOSITION | MF_STRING, IDM_SHOW, L"显示窗口");
                     }
                 }
             }
