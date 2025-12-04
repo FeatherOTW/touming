@@ -7,6 +7,11 @@
 #include <gdiplus.h>
 #include <time.h>
 
+// 如果定义了__RESOURCE_ICON_ICO__宏，则定义IDI_ICON1标识符
+#ifdef __RESOURCE_ICON_ICO__
+#define IDI_ICON1 101
+#endif
+
 #pragma comment(lib, "comdlg32.lib")
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "msimg32.lib")
@@ -79,8 +84,7 @@ HWND hButtonOK = NULL; // 确定按钮句柄
 int scrollX = 0;
 int scrollY = 0;
 SIZE textSize = {0};
-// 标志：是否需要初始化居中位置
-static bool needCenterInit = true;
+static bool needCenterInit = true; // 是否需要初始化居中位置
 
 // 单词卡相关全局变量
 std::vector<std::vector<std::wstring>> wordCards; // 单词卡列表，每行是一个文本块，每列是一个段落
@@ -242,13 +246,29 @@ INT WINAPI WinMain(
     wc.cbClsExtra = 0;
     wc.cbWndExtra = 0;
     wc.hInstance = hInstance;
-    wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    // 加载图标，如果存在自定义图标则使用，否则使用默认图标
+#ifdef __RESOURCE_ICON_ICO__
+    wc.hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_ICON1));
+    if (!wc.hIcon) {
+#endif
+        wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+#ifdef __RESOURCE_ICON_ICO__
+    }
+#endif
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     // 使用空背景刷以避免默认边框效果
     wc.hbrBackground = NULL;
     wc.lpszMenuName = NULL;
     wc.lpszClassName = g_szClassName;
-    wc.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
+    // 加载小图标，如果存在自定义图标则使用，否则使用默认图标
+#ifdef __RESOURCE_ICON_ICO__
+    wc.hIconSm = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_ICON1));
+    if (!wc.hIconSm) {
+#endif
+        wc.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
+#ifdef __RESOURCE_ICON_ICO__
+    }
+#endif
 
     if (!RegisterClassEx(&wc)) {
         MessageBoxW(NULL, L"Window class registration failed!", L"Error!", MB_ICONEXCLAMATION | MB_OK);
@@ -317,7 +337,15 @@ void CreateTaskbarIcon(HWND hWnd) {
     g_notifyIconData.uID = 100;
     g_notifyIconData.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     g_notifyIconData.uCallbackMessage = WM_TRAYMESSAGE;
-    g_notifyIconData.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    // 加载任务栏图标，如果存在自定义图标则使用，否则使用默认图标
+#ifdef __RESOURCE_ICON_ICO__
+    g_notifyIconData.hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_ICON1));
+    if (!g_notifyIconData.hIcon) {
+#endif
+        g_notifyIconData.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+#ifdef __RESOURCE_ICON_ICO__
+    }
+#endif
     lstrcpyW(g_notifyIconData.szTip, L"Transparent Window App");
     Shell_NotifyIconW(NIM_ADD, &g_notifyIconData);
 }
@@ -1130,12 +1158,28 @@ HWND CreateSettingsWindow(HWND hWndParent) {
     wcSettings.cbClsExtra = 0;
     wcSettings.cbWndExtra = 0;
     wcSettings.hInstance = hInstance;
-    wcSettings.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    // 加载设置窗口图标，如果存在自定义图标则使用，否则使用默认图标
+#ifdef __RESOURCE_ICON_ICO__
+    wcSettings.hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_ICON1));
+    if (!wcSettings.hIcon) {
+#endif
+        wcSettings.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+#ifdef __RESOURCE_ICON_ICO__
+    }
+#endif
     wcSettings.hCursor = LoadCursor(NULL, IDC_ARROW);
     wcSettings.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wcSettings.lpszMenuName = NULL;
     wcSettings.lpszClassName = settingsClassName;
-    wcSettings.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
+    // 加载设置窗口小图标，如果存在自定义图标则使用，否则使用默认图标
+#ifdef __RESOURCE_ICON_ICO__
+    wcSettings.hIconSm = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_ICON1));
+    if (!wcSettings.hIconSm) {
+#endif
+        wcSettings.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
+#ifdef __RESOURCE_ICON_ICO__
+    }
+#endif
 
     if (!RegisterClassEx(&wcSettings)) {
         if (GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {

@@ -1,0 +1,7 @@
+#include "windows.h"
+
+// 如果存在icon.ico文件，则将其作为程序图标
+#ifdef __RESOURCE_ICON_ICO__
+#define IDI_ICON1 101
+IDI_ICON1 ICON "icon.ico"
+#endif
